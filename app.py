@@ -4,6 +4,9 @@ import google.generativeai as genai
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 import logging
+import os
+import base64
+from io import BytesIO
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -12,8 +15,13 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI()
 
-# Configure the Google AI API Key (replace with your actual key)
-genai.configure(api_key="YOUR_GOOGLE_API_KEY")  # Replace with your actual key
+# Configure the Google AI API Key using environment variables
+api_key = os.getenv("GOOGLE_API_KEY")  # Make sure to set this environment variable on Render
+if not api_key:
+    logger.error("API key is missing!")
+    raise Exception("API key is missing! Set 'GOOGLE_API_KEY' environment variable.")
+    
+genai.configure(api_key=api_key)
 
 # Create the Pydantic model to accept email content
 class EmailContent(BaseModel):
@@ -53,6 +61,24 @@ def export_pdf(text):
     pdf.multi_cell(0, 10, text)
     return pdf.output(dest='S').encode('latin1')
 
+# Helper function to generate word cloud image as base64
+def generate_wordcloud_image(word_counts):
+    fig = plt.figure(figsize=(10, 5))
+    plt.bar(word_counts.keys(), word_counts.values())
+    plt.xticks(rotation=45)
+    plt.title("Word Frequency")
+    plt.tight_layout()
+
+    # Save the plot to a BytesIO buffer
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    
+    # Convert the image to base64
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)  # Close the figure after saving
+    return img_base64
+
 # API endpoint to analyze email content
 @app.post("/analyze-email")
 async def analyze_email(content: EmailContent):
@@ -66,15 +92,10 @@ async def analyze_email(content: EmailContent):
         sentiment = get_sentiment(email_content)
         sentiment_label = "Positive" if sentiment > 0 else "Negative" if sentiment < 0 else "Neutral"
 
-        # Generate Word Cloud
+        # Generate Word Cloud and get it as base64 image
         word_counts = generate_wordcloud(email_content)
-        wordcloud_fig = plt.figure(figsize=(10, 5))
-        plt.bar(word_counts.keys(), word_counts.values())
-        plt.xticks(rotation=45)
-        plt.title("Word Frequency")
-        plt.tight_layout()
-        plt.close(wordcloud_fig)  # Prevents displaying the plot in the response
-        
+        wordcloud_image_base64 = generate_wordcloud_image(word_counts)
+
         # Prepare Response
         response_data = {
             "summary": summary,
@@ -82,7 +103,7 @@ async def analyze_email(content: EmailContent):
                 "label": sentiment_label,
                 "score": sentiment
             },
-            "wordcloud": word_counts
+            "wordcloud": wordcloud_image_base64
         }
 
         return response_data
