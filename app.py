@@ -4,7 +4,6 @@ import google.generativeai as genai
 import json
 import re
 from io import BytesIO
-import matplotlib.pyplot as plt
 from fpdf import FPDF
 import logging
 
@@ -23,7 +22,12 @@ MAX_EMAIL_LENGTH = 1000
 class EmailContent(BaseModel):
     email_text: str
 
-# Helper Functions (similar to your Streamlit code)
+# Root Route
+@app.get("/")
+async def read_root():
+    return {"message": "Welcome to the Email Analysis API!"}
+
+# Helper Functions (same as before)
 def get_sentiment(email_content):
     positive_keywords = ["happy", "good", "great", "excellent", "love"]
     negative_keywords = ["sad", "bad", "hate", "angry", "disappointed"]
@@ -103,10 +107,10 @@ def get_ai_response(prompt, email_content):
         response = model.generate_content(prompt + email_content[:MAX_EMAIL_LENGTH])
         return response.text.strip()
     except Exception as e:
-        logger.error(f"Error during AI response generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error during AI response generation: {str(e)}")
 
 # API Endpoints
+
 @app.post("/analyze-email")
 async def analyze_email(content: EmailContent):
     email_content = content.email_text
