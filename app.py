@@ -6,9 +6,14 @@ import re
 from io import BytesIO
 import matplotlib.pyplot as plt
 from fpdf import FPDF
+import logging
 
 # Initialize FastAPI app
 app = FastAPI()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Configure Google AI API Key
 genai.configure(api_key="YOUR_GOOGLE_API_KEY")  # Replace with your actual API key
@@ -98,6 +103,7 @@ def get_ai_response(prompt, email_content):
         response = model.generate_content(prompt + email_content[:MAX_EMAIL_LENGTH])
         return response.text.strip()
     except Exception as e:
+        logger.error(f"Error during AI response generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error during AI response generation: {str(e)}")
 
 # API Endpoints
@@ -160,6 +166,7 @@ async def analyze_email(content: EmailContent):
         return response_data
 
     except Exception as e:
+        logger.error(f"Error during email analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error during email analysis: {str(e)}")
 
 @app.post("/export-pdf")
@@ -170,6 +177,7 @@ async def export_pdf_endpoint(content: EmailContent):
         pdf_data = export_pdf(response_data)
         return {"pdf": pdf_data}
     except Exception as e:
+        logger.error(f"Error during PDF export: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error during PDF export: {str(e)}")
 
 @app.post("/export-json")
@@ -181,6 +189,7 @@ async def export_json_endpoint(content: EmailContent):
         }
         return response_data
     except Exception as e:
+        logger.error(f"Error during JSON export: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error during JSON export: {str(e)}")
 
 # Run the application with: uvicorn your_file_name:app --reload
