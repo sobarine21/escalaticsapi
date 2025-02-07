@@ -1,33 +1,35 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import google.generativeai as genai
-import json
-import re
-from io import BytesIO
 from fpdf import FPDF
 import logging
-
-# Initialize FastAPI app
-app = FastAPI()
+import os
+import json
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure Google AI API Key
-genai.configure(api_key="YOUR_GOOGLE_API_KEY")  # Replace with your actual API key
+# Initialize FastAPI app
+app = FastAPI()
 
-MAX_EMAIL_LENGTH = 1000
+# Configure the Google AI API Key using environment variables
+api_key = os.getenv("GOOGLE_API_KEY")  # Make sure to set this environment variable on Render
+if not api_key:
+    logger.error("API key is missing!")
+    raise Exception("API key is missing! Set 'GOOGLE_API_KEY' environment variable.")
+    
+genai.configure(api_key=api_key)
 
+# Create the Pydantic model to accept email content
 class EmailContent(BaseModel):
     email_text: str
 
-# Root Route
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to the Email Analysis API!"}
+# Maximum email length to process
+MAX_EMAIL_LENGTH = 1000
 
-# Helper Functions (same as before)
+# Sentiment Analysis
 def get_sentiment(email_content):
     positive_keywords = ["happy", "good", "great", "excellent", "love"]
     negative_keywords = ["sad", "bad", "hate", "angry", "disappointed"]
@@ -39,6 +41,12 @@ def get_sentiment(email_content):
             sentiment_score -= 1
     return sentiment_score
 
+# Key Phrase Extraction
+def extract_key_phrases(text):
+    key_phrases = re.findall(r"\b[A-Za-z]{4,}\b", text)
+    return list(set(key_phrases))  # Remove duplicates
+
+# Grammar Check (basic spelling correction)
 def grammar_check(text):
     corrections = {
         "recieve": "receive",
@@ -50,17 +58,16 @@ def grammar_check(text):
         text = text.replace(word, correct)
     return text
 
-def extract_key_phrases(text):
-    key_phrases = re.findall(r"\b[A-Za-z]{4,}\b", text)
-    return list(set(key_phrases))  # Remove duplicates
-
+# Actionable Items Extraction
 def extract_actionable_items(text):
     actions = [line for line in text.split("\n") if "to" in line.lower() or "action" in line.lower()]
     return actions
 
+# Root Cause Detection
 def detect_root_cause(text):
     return "Possible root cause: Lack of clear communication in the process."
 
+# Culprit Identification
 def identify_culprit(text):
     if "manager" in text.lower():
         return "Culprit: The manager might be responsible."
@@ -68,32 +75,27 @@ def identify_culprit(text):
         return "Culprit: The team might be responsible."
     return "Culprit: Unknown"
 
+# Trend Analysis
 def analyze_trends(text):
     return "Trend detected: Delay in project timelines."
 
+# Risk Assessment
 def assess_risk(text):
     return "Risk assessment: High risk due to delayed communication."
 
+# Severity Detection
 def detect_severity(text):
     if "urgent" in text.lower():
         return "Severity: High"
     return "Severity: Normal"
 
+# Critical Keyword Identification
 def identify_critical_keywords(text):
     critical_keywords = ["urgent", "problem", "issue", "failure"]
     critical_terms = [word for word in text.split() if word.lower() in critical_keywords]
     return critical_terms
 
-def generate_wordcloud(text):
-    word_counts = {}
-    for word in text.split():
-        word = word.lower()
-        if word not in word_counts:
-            word_counts[word] = 1
-        else:
-            word_counts[word] += 1
-    return word_counts
-
+# Export to PDF
 def export_pdf(text):
     pdf = FPDF()
     pdf.add_page()
@@ -101,30 +103,26 @@ def export_pdf(text):
     pdf.multi_cell(0, 10, text)
     return pdf.output(dest='S').encode('latin1')
 
-def get_ai_response(prompt, email_content):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt + email_content[:MAX_EMAIL_LENGTH])
-        return response.text.strip()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during AI response generation: {str(e)}")
+# Export to JSON
+def export_json(data):
+    return json.dumps(data, indent=4)
 
-# API Endpoints
-
+# API endpoint to analyze email content
 @app.post("/analyze-email")
 async def analyze_email(content: EmailContent):
     email_content = content.email_text
     try:
-        # Generate AI responses
-        summary = get_ai_response("Summarize the email in a concise, actionable format:\n\n", email_content)
-        response = get_ai_response("Draft a professional response to this email:\n\n", email_content)
-        highlights = get_ai_response("Highlight key points and actions in this email:\n\n", email_content)
+        # Generate AI-like responses (using google.generativeai for content generation)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        summary = model.generate_content(f"Summarize the email in a concise, actionable format:\n\n{email_content[:MAX_EMAIL_LENGTH]}").text.strip()
+        response = model.generate_content(f"Draft a professional response to this email:\n\n{email_content[:MAX_EMAIL_LENGTH]}").text.strip()
+        highlights = model.generate_content(f"Highlight key points and actions in this email:\n\n{email_content[:MAX_EMAIL_LENGTH]}").text.strip()
 
         # Sentiment Analysis
         sentiment = get_sentiment(email_content)
         sentiment_label = "Positive" if sentiment > 0 else "Negative" if sentiment < 0 else "Neutral"
 
-        # Key Phrases Extraction
+        # Extract Key Phrases
         key_phrases = extract_key_phrases(email_content)
 
         # Extract Actionable Items
@@ -148,7 +146,7 @@ async def analyze_email(content: EmailContent):
         # Critical Keyword Identification
         critical_keywords = identify_critical_keywords(email_content)
 
-        # Prepare Response Data
+        # Prepare Response
         response_data = {
             "summary": summary,
             "response": response,
@@ -171,29 +169,4 @@ async def analyze_email(content: EmailContent):
 
     except Exception as e:
         logger.error(f"Error during email analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error during email analysis: {str(e)}")
-
-@app.post("/export-pdf")
-async def export_pdf_endpoint(content: EmailContent):
-    try:
-        summary = get_ai_response("Summarize the email in a concise, actionable format:\n\n", content.email_text)
-        response_data = f"Summary:\n{summary}\n"
-        pdf_data = export_pdf(response_data)
-        return {"pdf": pdf_data}
-    except Exception as e:
-        logger.error(f"Error during PDF export: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error during PDF export: {str(e)}")
-
-@app.post("/export-json")
-async def export_json_endpoint(content: EmailContent):
-    try:
-        summary = get_ai_response("Summarize the email in a concise, actionable format:\n\n", content.email_text)
-        response_data = {
-            "summary": summary
-        }
-        return response_data
-    except Exception as e:
-        logger.error(f"Error during JSON export: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error during JSON export: {str(e)}")
-
-# Run the application with: uvicorn your_file_name:app --reload
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
