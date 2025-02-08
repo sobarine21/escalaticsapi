@@ -1,9 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import google.generativeai as genai
+import matplotlib.pyplot as plt
+from fpdf import FPDF
 import logging
 import os
-from fpdf import FPDF
+import base64
+from io import BytesIO
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -27,38 +30,28 @@ class EmailContent(BaseModel):
 # Maximum email length to process
 MAX_EMAIL_LENGTH = 1000
 
-# Sentiment Analysis using Google AI
+# Sentiment Analysis
 def get_sentiment(email_content):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        sentiment_result = model.generate_content(f"Analyze the sentiment of the following text:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        sentiment_analysis = sentiment_result.strip()  # Fixed: Remove .text, directly use the string response
-        return sentiment_analysis
-    except Exception as e:
-        logger.error(f"Error during sentiment analysis: {str(e)}")
-        return "Unknown sentiment"
+    positive_keywords = ["happy", "good", "great", "excellent", "love"]
+    negative_keywords = ["sad", "bad", "hate", "angry", "disappointed"]
+    sentiment_score = 0
+    for word in email_content.split():
+        if word.lower() in positive_keywords:
+            sentiment_score += 1
+        elif word.lower() in negative_keywords:
+            sentiment_score -= 1
+    return sentiment_score
 
-# Root Cause Identification using Google AI
-def identify_root_cause(email_content):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        root_cause_result = model.generate_content(f"Identify potential root causes or issues mentioned in the following email content:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        root_cause = root_cause_result.strip()  # Fixed: Remove .text, directly use the string response
-        return root_cause
-    except Exception as e:
-        logger.error(f"Error during root cause analysis: {str(e)}")
-        return "Unknown root cause"
-
-# Suggested Response Generation using Google AI
-def generate_suggested_response(email_content):
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response_result = model.generate_content(f"Generate a suggested response to the following email:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        suggested_response = response_result.strip()  # Fixed: Remove .text, directly use the string response
-        return suggested_response
-    except Exception as e:
-        logger.error(f"Error during response generation: {str(e)}")
-        return "Unable to generate response"
+# Word Cloud Generation
+def generate_wordcloud(text):
+    word_counts = {}
+    for word in text.split():
+        word = word.lower()
+        if word not in word_counts:
+            word_counts[word] = 1
+        else:
+            word_counts[word] += 1
+    return word_counts
 
 # Export to PDF
 def export_pdf(text):
@@ -68,6 +61,24 @@ def export_pdf(text):
     pdf.multi_cell(0, 10, text)
     return pdf.output(dest='S').encode('latin1')
 
+# Helper function to generate word cloud image as base64
+def generate_wordcloud_image(word_counts):
+    fig = plt.figure(figsize=(10, 5))
+    plt.bar(word_counts.keys(), word_counts.values())
+    plt.xticks(rotation=45)
+    plt.title("Word Frequency")
+    plt.tight_layout()
+
+    # Save the plot to a BytesIO buffer
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    
+    # Convert the image to base64
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)  # Close the figure after saving
+    return img_base64
+
 # API endpoint to analyze email content
 @app.post("/analyze-email")
 async def analyze_email(content: EmailContent):
@@ -75,23 +86,24 @@ async def analyze_email(content: EmailContent):
     try:
         # Generate AI-like responses (using google.generativeai for content generation)
         model = genai.GenerativeModel("gemini-1.5-flash")
-        summary = model.generate_content(f"Summarize the email in a concise, actionable format:\n\n{email_content[:MAX_EMAIL_LENGTH]}").strip()  # Fixed: Remove .text, directly use the string response
-
-        # Sentiment Analysis - Use AI model to get dynamic sentiment
+        summary = model.generate_content(f"Summarize the email in a concise, actionable format:\n\n{email_content[:MAX_EMAIL_LENGTH]}").text.strip()
+        
+        # Sentiment Analysis
         sentiment = get_sentiment(email_content)
+        sentiment_label = "Positive" if sentiment > 0 else "Negative" if sentiment < 0 else "Neutral"
 
-        # Root Cause Identification - Use AI model to identify issues
-        root_cause = identify_root_cause(email_content)
-
-        # Suggested Response - Generate a suggested response to the email
-        suggested_response = generate_suggested_response(email_content)
+        # Generate Word Cloud and get it as base64 image
+        word_counts = generate_wordcloud(email_content)
+        wordcloud_image_base64 = generate_wordcloud_image(word_counts)
 
         # Prepare Response
         response_data = {
             "summary": summary,
-            "sentiment": sentiment,
-            "root_cause": root_cause,
-            "suggested_response": suggested_response
+            "sentiment": {
+                "label": sentiment_label,
+                "score": sentiment
+            },
+            "wordcloud": wordcloud_image_base64
         }
 
         return response_data
