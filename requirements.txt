@@ -6,3 +6,4 @@ fpdf
 requests
 flask
 nltk
+langdetect
