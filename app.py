@@ -1,12 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import google.generativeai as genai
-import matplotlib.pyplot as plt
-from fpdf import FPDF
 import logging
 import os
-import base64
-from io import BytesIO
+from fpdf import FPDF
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -52,16 +49,16 @@ def identify_root_cause(email_content):
         logger.error(f"Error during root cause analysis: {str(e)}")
         return "Unknown root cause"
 
-# Word Cloud Generation (Dynamic, based on email content)
-def generate_wordcloud(text):
-    word_counts = {}
-    for word in text.split():
-        word = word.lower()
-        if word not in word_counts:
-            word_counts[word] = 1
-        else:
-            word_counts[word] += 1
-    return word_counts
+# Suggested Response Generation using Google AI
+def generate_suggested_response(email_content):
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response_result = model.generate_content(f"Generate a suggested response to the following email:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
+        suggested_response = response_result.text.strip()
+        return suggested_response
+    except Exception as e:
+        logger.error(f"Error during response generation: {str(e)}")
+        return "Unable to generate response"
 
 # Export to PDF
 def export_pdf(text):
@@ -70,24 +67,6 @@ def export_pdf(text):
     pdf.set_font("Arial", size=12)
     pdf.multi_cell(0, 10, text)
     return pdf.output(dest='S').encode('latin1')
-
-# Helper function to generate word cloud image as base64
-def generate_wordcloud_image(word_counts):
-    fig = plt.figure(figsize=(10, 5))
-    plt.bar(word_counts.keys(), word_counts.values())
-    plt.xticks(rotation=45)
-    plt.title("Word Frequency")
-    plt.tight_layout()
-
-    # Save the plot to a BytesIO buffer
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-    
-    # Convert the image to base64
-    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)  # Close the figure after saving
-    return img_base64
 
 # API endpoint to analyze email content
 @app.post("/analyze-email")
@@ -104,16 +83,15 @@ async def analyze_email(content: EmailContent):
         # Root Cause Identification - Use AI model to identify issues
         root_cause = identify_root_cause(email_content)
 
-        # Generate Word Cloud and get it as base64 image
-        word_counts = generate_wordcloud(email_content)
-        wordcloud_image_base64 = generate_wordcloud_image(word_counts)
+        # Suggested Response - Generate a suggested response to the email
+        suggested_response = generate_suggested_response(email_content)
 
         # Prepare Response
         response_data = {
             "summary": summary,
             "sentiment": sentiment,
             "root_cause": root_cause,
-            "wordcloud": wordcloud_image_base64
+            "suggested_response": suggested_response
         }
 
         return response_data
