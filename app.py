@@ -32,7 +32,7 @@ def get_sentiment(email_content):
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         sentiment_result = model.generate_content(f"Analyze the sentiment of the following text:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        sentiment_analysis = sentiment_result.text.strip()
+        sentiment_analysis = sentiment_result.strip()  # Fixed: Remove .text, directly use the string response
         return sentiment_analysis
     except Exception as e:
         logger.error(f"Error during sentiment analysis: {str(e)}")
@@ -43,7 +43,7 @@ def identify_root_cause(email_content):
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         root_cause_result = model.generate_content(f"Identify potential root causes or issues mentioned in the following email content:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        root_cause = root_cause_result.text.strip()
+        root_cause = root_cause_result.strip()  # Fixed: Remove .text, directly use the string response
         return root_cause
     except Exception as e:
         logger.error(f"Error during root cause analysis: {str(e)}")
@@ -54,7 +54,7 @@ def generate_suggested_response(email_content):
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         response_result = model.generate_content(f"Generate a suggested response to the following email:\n\n{email_content[:MAX_EMAIL_LENGTH]}")
-        suggested_response = response_result.text.strip()
+        suggested_response = response_result.strip()  # Fixed: Remove .text, directly use the string response
         return suggested_response
     except Exception as e:
         logger.error(f"Error during response generation: {str(e)}")
@@ -75,7 +75,7 @@ async def analyze_email(content: EmailContent):
     try:
         # Generate AI-like responses (using google.generativeai for content generation)
         model = genai.GenerativeModel("gemini-1.5-flash")
-        summary = model.generate_content(f"Summarize the email in a concise, actionable format:\n\n{email_content[:MAX_EMAIL_LENGTH]}").text.strip()
+        summary = model.generate_content(f"Summarize the email in a concise, actionable format:\n\n{email_content[:MAX_EMAIL_LENGTH]}").strip()  # Fixed: Remove .text, directly use the string response
 
         # Sentiment Analysis - Use AI model to get dynamic sentiment
         sentiment = get_sentiment(email_content)
