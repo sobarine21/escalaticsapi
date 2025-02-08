@@ -2,9 +2,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import google.generativeai as genai
 import json
-import re
-from io import BytesIO
-import matplotlib.pyplot as plt
 from fpdf import FPDF
 
 # Initialize FastAPI app
@@ -18,80 +15,7 @@ MAX_EMAIL_LENGTH = 1000
 class EmailContent(BaseModel):
     email_text: str
 
-# Helper Functions (similar to your Streamlit code)
-def get_sentiment(email_content):
-    positive_keywords = ["happy", "good", "great", "excellent", "love"]
-    negative_keywords = ["sad", "bad", "hate", "angry", "disappointed"]
-    sentiment_score = 0
-    for word in email_content.split():
-        if word.lower() in positive_keywords:
-            sentiment_score += 1
-        elif word.lower() in negative_keywords:
-            sentiment_score -= 1
-    return sentiment_score
-
-def grammar_check(text):
-    corrections = {
-        "recieve": "receive",
-        "adress": "address",
-        "teh": "the",
-        "occured": "occurred"
-    }
-    for word, correct in corrections.items():
-        text = text.replace(word, correct)
-    return text
-
-def extract_key_phrases(text):
-    key_phrases = re.findall(r"\b[A-Za-z]{4,}\b", text)
-    return list(set(key_phrases))  # Remove duplicates
-
-def extract_actionable_items(text):
-    actions = [line for line in text.split("\n") if "to" in line.lower() or "action" in line.lower()]
-    return actions
-
-def detect_root_cause(text):
-    return "Possible root cause: Lack of clear communication in the process."
-
-def identify_culprit(text):
-    if "manager" in text.lower():
-        return "Culprit: The manager might be responsible."
-    elif "team" in text.lower():
-        return "Culprit: The team might be responsible."
-    return "Culprit: Unknown"
-
-def analyze_trends(text):
-    return "Trend detected: Delay in project timelines."
-
-def assess_risk(text):
-    return "Risk assessment: High risk due to delayed communication."
-
-def detect_severity(text):
-    if "urgent" in text.lower():
-        return "Severity: High"
-    return "Severity: Normal"
-
-def identify_critical_keywords(text):
-    critical_keywords = ["urgent", "problem", "issue", "failure"]
-    critical_terms = [word for word in text.split() if word.lower() in critical_keywords]
-    return critical_terms
-
-def generate_wordcloud(text):
-    word_counts = {}
-    for word in text.split():
-        word = word.lower()
-        if word not in word_counts:
-            word_counts[word] = 1
-        else:
-            word_counts[word] += 1
-    return word_counts
-
-def export_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, text)
-    return pdf.output(dest='S').encode('latin1')
-
+# Helper Functions (revised to work dynamically with AI)
 def get_ai_response(prompt, email_content):
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
@@ -99,6 +23,46 @@ def get_ai_response(prompt, email_content):
         return response.text.strip()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during AI response generation: {str(e)}")
+
+def analyze_sentiment(email_content):
+    prompt = f"Analyze the sentiment of the following email content:\n\n{email_content}\n\nIs it positive, neutral, or negative?"
+    return get_ai_response(prompt, email_content)
+
+def extract_dynamic_keywords(email_content):
+    prompt = f"Identify critical keywords from the following email content:\n\n{email_content}\n\nProvide a list of the most important words or phrases."
+    return get_ai_response(prompt, email_content)
+
+def extract_actionable_items(email_content):
+    prompt = f"Identify any actionable items from the following email content:\n\n{email_content}\n\nWhat are the next steps or tasks mentioned?"
+    return get_ai_response(prompt, email_content)
+
+def detect_root_cause(email_content):
+    prompt = f"Based on the email, can you identify any possible root causes for the issues discussed in the email?\n\n{email_content}\n\nPlease provide your analysis."
+    return get_ai_response(prompt, email_content)
+
+def identify_potential_culprit(email_content):
+    prompt = f"Based on the email, who or what might be responsible for the issues mentioned? Provide your analysis.\n\n{email_content}\n\nPlease identify any potential culprits."
+    return get_ai_response(prompt, email_content)
+
+def analyze_trends(email_content):
+    prompt = f"Based on the email, identify any trends or patterns in the work, team, or issues discussed. Please analyze the content.\n\n{email_content}\n\nWhat trends or recurring issues do you detect?"
+    return get_ai_response(prompt, email_content)
+
+def assess_risk(email_content):
+    prompt = f"Analyze the following email content for potential risks. Is there any concern about timelines, resources, or outcomes?\n\n{email_content}\n\nProvide a risk assessment."
+    return get_ai_response(prompt, email_content)
+
+def detect_severity(email_content):
+    prompt = f"Analyze the severity of the issues discussed in the following email. Is this urgent or normal?\n\n{email_content}\n\nPlease provide a severity level."
+    return get_ai_response(prompt, email_content)
+
+# PDF export function (unchanged)
+def export_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, text)
+    return pdf.output(dest='S').encode('latin1')
 
 # API Endpoints
 @app.post("/analyze-email")
@@ -111,50 +75,42 @@ async def analyze_email(content: EmailContent):
         highlights = get_ai_response("Highlight key points and actions in this email:\n\n", email_content)
 
         # Sentiment Analysis
-        sentiment = get_sentiment(email_content)
-        sentiment_label = "Positive" if sentiment > 0 else "Negative" if sentiment < 0 else "Neutral"
+        sentiment = await analyze_sentiment(email_content)
 
-        # Key Phrases Extraction
-        key_phrases = extract_key_phrases(email_content)
+        # Dynamic Keywords Extraction
+        dynamic_keywords = await extract_dynamic_keywords(email_content)
 
         # Extract Actionable Items
-        actionable_items = extract_actionable_items(email_content)
+        actionable_items = await extract_actionable_items(email_content)
 
         # Root Cause Detection
-        root_cause = detect_root_cause(email_content)
+        root_cause = await detect_root_cause(email_content)
 
         # Culprit Identification
-        culprit = identify_culprit(email_content)
+        culprit = await identify_potential_culprit(email_content)
 
         # Trend Analysis
-        trends = analyze_trends(email_content)
+        trends = await analyze_trends(email_content)
 
         # Risk Assessment
-        risk = assess_risk(email_content)
+        risk = await assess_risk(email_content)
 
         # Severity Detection
-        severity = detect_severity(email_content)
-
-        # Critical Keyword Identification
-        critical_keywords = identify_critical_keywords(email_content)
+        severity = await detect_severity(email_content)
 
         # Prepare Response Data
         response_data = {
             "summary": summary,
             "response": response,
             "highlights": highlights,
-            "sentiment": {
-                "label": sentiment_label,
-                "score": sentiment
-            },
-            "key_phrases": key_phrases,
+            "sentiment": sentiment,
+            "dynamic_keywords": dynamic_keywords,
             "actionable_items": actionable_items,
             "root_cause": root_cause,
             "culprit": culprit,
             "trends": trends,
             "risk": risk,
-            "severity": severity,
-            "critical_keywords": critical_keywords
+            "severity": severity
         }
 
         return response_data
