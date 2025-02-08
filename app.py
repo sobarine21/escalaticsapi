@@ -1,26 +1,31 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import google.generativeai as genai
 import logging
 import os
-import re
+import base64
 from io import BytesIO
+import re
 from fpdf import FPDF
-import json
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app
-app = Flask(__name__)
+# Initialize FastAPI app
+app = FastAPI()
 
-# Configure the Google AI API Key securely
-api_key = os.getenv("GOOGLE_API_KEY")  # Make sure to set this environment variable
+# Configure the Google AI API Key using environment variables
+api_key = os.getenv("GOOGLE_API_KEY")  # Make sure to set this environment variable on Render
 if not api_key:
     logger.error("API key is missing!")
     raise Exception("API key is missing! Set 'GOOGLE_API_KEY' environment variable.")
     
 genai.configure(api_key=api_key)
+
+# Create the Pydantic model to accept email content
+class EmailContent(BaseModel):
+    email_text: str
 
 # Maximum email length to process
 MAX_EMAIL_LENGTH = 1000
@@ -53,14 +58,6 @@ def grammar_check(text):
 def extract_key_phrases(text):
     key_phrases = re.findall(r"\b[A-Za-z]{4,}\b", text)
     return list(set(key_phrases))  # Remove duplicates
-
-# Export to PDF
-def export_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, text)
-    return pdf.output(dest='S').encode('latin1')
 
 # Actionable Items Extraction
 def extract_actionable_items(text):
@@ -99,7 +96,15 @@ def identify_critical_keywords(text):
     critical_terms = [word for word in text.split() if word.lower() in critical_keywords]
     return critical_terms
 
-# Helper function to generate AI-like responses
+# Export to PDF
+def export_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, text)
+    return pdf.output(dest='S').encode('latin1')
+
+# Helper function to get AI responses
 def get_ai_response(prompt, email_content):
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
@@ -110,106 +115,75 @@ def get_ai_response(prompt, email_content):
         return ""
 
 # API endpoint to analyze email content
-@app.route('/analyze-email', methods=['POST'])
-def analyze_email():
-    data = request.json
-    email_content = data.get('email_text', "")
-    
-    # Initialize feature flags (for simplicity, all features are enabled here)
-    features = {
-        "sentiment": data.get('sentiment', True),
-        "highlights": data.get('highlights', False),
-        "response": data.get('response', False),
-        "grammar_check": data.get('grammar_check', False),
-        "key_phrases": data.get('key_phrases', False),
-        "actionable_items": data.get('actionable_items', False),
-        "root_cause": data.get('root_cause', False),
-        "culprit_identification": data.get('culprit_identification', False),
-        "trend_analysis": data.get('trend_analysis', False),
-        "risk_assessment": data.get('risk_assessment', False),
-        "severity_detection": data.get('severity_detection', False),
-        "critical_keywords": data.get('critical_keywords', False),
-        "export": data.get('export', False)
-    }
-
+@app.post("/analyze-email")
+async def analyze_email(content: EmailContent):
+    email_content = content.email_text
     try:
         # Generate AI-like responses (using google.generativeai for content generation)
         summary = get_ai_response("Summarize the email in a concise, actionable format:\n\n", email_content)
-        response = get_ai_response("Draft a professional response to this email:\n\n", email_content) if features["response"] else ""
-        highlights = get_ai_response("Highlight key points and actions in this email:\n\n", email_content) if features["highlights"] else ""
+        response = get_ai_response("Draft a professional response to this email:\n\n", email_content)
+        highlights = get_ai_response("Highlight key points and actions in this email:\n\n", email_content)
 
         # Sentiment Analysis
         sentiment = get_sentiment(email_content)
         sentiment_label = "Positive" if sentiment > 0 else "Negative" if sentiment < 0 else "Neutral"
 
-        # Prepare the response data
+        # Grammar Check
+        corrected_text = grammar_check(email_content)
+
+        # Key Phrases Extraction
+        key_phrases = extract_key_phrases(email_content)
+
+        # Actionable Items Extraction
+        actionable_items = extract_actionable_items(email_content)
+
+        # RCA and Insights Features
+        root_cause = detect_root_cause(email_content)
+        culprit = identify_culprit(email_content)
+        trends = analyze_trends(email_content)
+        risk = assess_risk(email_content)
+        severity = detect_severity(email_content)
+        critical_keywords = identify_critical_keywords(email_content)
+
+        # Prepare content for export
+        export_content = (
+            f"Summary:\n{summary}\n\n"
+            f"Response:\n{response}\n\n"
+            f"Highlights:\n{highlights}\n\n"
+            f"Sentiment Analysis: {sentiment_label} (Score: {sentiment})\n\n"
+            f"Root Cause: {root_cause}\n\n"
+            f"Culprit Identification: {culprit}\n\n"
+            f"Trend Analysis: {trends}\n\n"
+            f"Risk Assessment: {risk}\n\n"
+            f"Severity: {severity}\n\n"
+            f"Critical Keywords: {', '.join(critical_keywords)}\n"
+        )
+
+        # Export to PDF if requested
+        pdf_buffer = BytesIO(export_pdf(export_content))
+        
         response_data = {
             "summary": summary,
+            "response": response,
+            "highlights": highlights,
             "sentiment": {
                 "label": sentiment_label,
                 "score": sentiment
-            }
+            },
+            "corrected_text": corrected_text,
+            "key_phrases": key_phrases,
+            "actionable_items": actionable_items,
+            "root_cause": root_cause,
+            "culprit": culprit,
+            "trends": trends,
+            "risk": risk,
+            "severity": severity,
+            "critical_keywords": critical_keywords,
+            "export_pdf": base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')  # Base64 encoded PDF
         }
 
-        # Include other features as needed
-        if features["grammar_check"]:
-            corrected_text = grammar_check(email_content)
-            response_data["corrected_text"] = corrected_text
-
-        if features["key_phrases"]:
-            key_phrases = extract_key_phrases(email_content)
-            response_data["key_phrases"] = key_phrases
-
-        if features["actionable_items"]:
-            actionable_items = extract_actionable_items(email_content)
-            response_data["actionable_items"] = actionable_items
-
-        if features["root_cause"]:
-            root_cause = detect_root_cause(email_content)
-            response_data["root_cause"] = root_cause
-
-        if features["culprit_identification"]:
-            culprit = identify_culprit(email_content)
-            response_data["culprit_identification"] = culprit
-
-        if features["trend_analysis"]:
-            trends = analyze_trends(email_content)
-            response_data["trend_analysis"] = trends
-
-        if features["risk_assessment"]:
-            risk = assess_risk(email_content)
-            response_data["risk_assessment"] = risk
-
-        if features["severity_detection"]:
-            severity = detect_severity(email_content)
-            response_data["severity_detection"] = severity
-
-        if features["critical_keywords"]:
-            critical_terms = identify_critical_keywords(email_content)
-            response_data["critical_keywords"] = critical_terms
-
-        # Export options (e.g., PDF)
-        if features["export"]:
-            export_content = (
-                f"Summary:\n{summary}\n\n"
-                f"Response:\n{response}\n\n"
-                f"Highlights:\n{highlights}\n\n"
-                f"Sentiment Analysis: {sentiment_label} (Score: {sentiment})\n\n"
-                f"Root Cause: {root_cause}\n\n"
-                f"Culprit Identification: {culprit}\n\n"
-                f"Trend Analysis: {trends}\n\n"
-                f"Risk Assessment: {risk}\n\n"
-                f"Severity: {severity}\n\n"
-                f"Critical Keywords: {', '.join(critical_terms)}\n"
-            )
-            pdf_buffer = BytesIO(export_pdf(export_content))
-            response_data["pdf_export"] = pdf_buffer.getvalue().decode('latin1')
-
-        return jsonify(response_data)
+        return response_data
 
     except Exception as e:
         logger.error(f"Error during email analysis: {str(e)}")
-        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
